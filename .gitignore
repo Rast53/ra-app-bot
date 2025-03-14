@@ -1,0 +1,40 @@
+# Зависимости
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Переменные окружения
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Логи
+logs/
+*.log
+
+# Директории сборки
+dist/
+build/
+out/
+
+# Кэш
+.cache/
+.npm/
+.eslintcache
+
+# Файлы IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Операционная система
+.DS_Store
+Thumbs.db
+
+# Файлы с чувствительными данными
+config/secrets.js
+receipts/ 

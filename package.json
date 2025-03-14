@@ -1,0 +1,37 @@
+{
+  "name": "ra-app-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for subscription management",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "lint": "eslint src/**/*.js",
+    "test": "jest"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "subscription",
+    "payment"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "node-cron": "^3.0.3",
+    "pg": "^8.11.3",
+    "telegraf": "^4.15.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.54.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+} 
