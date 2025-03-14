@@ -19,6 +19,7 @@
 - Express (для обработки вебхуков)
 - Winston (логирование)
 - Node-cron (планировщик задач)
+- Docker и Docker Compose (для развертывания)
 
 ## Установка и запуск
 
@@ -28,6 +29,7 @@
 - PostgreSQL (версия 12 или выше)
 - Зарегистрированный бот в Telegram через @BotFather
 - Настроенные платежи в Telegram через @BotFather и Stripe/Sberbank/Yookassa
+- Docker и Docker Compose (для развертывания в контейнерах)
 
 ### Установка
 
@@ -65,6 +67,70 @@ npm run dev
 ```
 npm start
 ```
+
+### Развертывание с использованием Docker
+
+#### Предварительные требования
+
+- Docker
+- Docker Compose
+
+#### Сборка и запуск
+
+1. Создайте файл `.env` с необходимыми переменными окружения:
+   ```
+   # Настройки бота
+   BOT_TOKEN=your_bot_token_here
+   WEBHOOK_DOMAIN=https://your-domain.com
+   PORT=3000
+   
+   # База данных
+   DATABASE_URL=postgres://username:password@postgres:5432/ra_app_bot
+   
+   # Платежи
+   PAYMENT_TOKEN=your_payment_token_here
+   ```
+
+2. Запустите сервисы с помощью Docker Compose:
+   ```
+   docker-compose up -d
+   ```
+
+#### Управление сервисами
+
+Для удобства управления сервисами можно использовать скрипт `deploy.sh`:
+
+```
+# Запуск сервисов
+./deploy.sh start
+
+# Остановка сервисов
+./deploy.sh stop
+
+# Перезапуск сервисов
+./deploy.sh restart
+
+# Обновление сервисов
+./deploy.sh update
+
+# Просмотр логов
+./deploy.sh logs
+
+# Проверка статуса сервисов
+./deploy.sh status
+```
+
+### Развертывание на NAS Synology
+
+Для развертывания на NAS Synology необходимо:
+
+1. Установить Docker и Docker Compose на NAS
+2. Скопировать файлы проекта на NAS
+3. Создать файл `.env` с необходимыми переменными окружения
+4. Запустить сервисы с помощью Docker Compose:
+   ```
+   docker-compose up -d
+   ```
 
 ## Структура проекта
 

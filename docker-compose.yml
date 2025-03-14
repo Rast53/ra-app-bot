@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  frontend:
+    image: rast53/raapp:v.1
+    ports:
+      - "8081:80"  # Порт для обратного прокси
+    restart: unless-stopped
+    networks:
+      - ra-network
+    depends_on:
+      - backend
+      
+  backend:
+    image: rast53/raserver:v.3
+    ports:
+      - "8080:8080"
+    restart: always
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - /volume2/cert/fullchain.pem:/app/fullchain.pem
+      - /volume2/cert/privkey.pem:/app/privkey.pem
+    networks:
+      - ra-network
+      
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rast53/ra-app-bot:v.1
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - BOT_TOKEN=${BOT_TOKEN}
+      - WEBHOOK_DOMAIN=${WEBHOOK_DOMAIN}
+      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/ra_app_bot
+      - PAYMENT_TOKEN=${PAYMENT_TOKEN}
+    volumes:
+      - /volume2/ra-app-bot/logs:/app/logs
+      - /volume2/cert/fullchain.pem:/app/fullchain.pem
+      - /volume2/cert/privkey.pem:/app/privkey.pem
+    networks:
+      - ra-network
+    depends_on:
+      - backend
+      - postgres
+      
+  postgres:
+    image: postgres:14-alpine
+    restart: always
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=ra_app_bot
+    volumes:
+      - /volume2/ra-app-bot/postgres-data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - ra-network
+
+networks:
+  ra-network:
+    driver: bridge 
