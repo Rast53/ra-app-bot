@@ -6,6 +6,18 @@ const { handleWriteSupportMessage, handleReplyToUserStart } = require('../comman
 const { handleAdminUserStats, handleAdminCheckExpired, handleAdminExpiringSoon, handleMarkAsRead } = require('../commands/admin');
 const { subscribeCommand } = require('../commands/subscribe');
 const { profileCommand } = require('../commands/profile');
+const { handleReceiptSelection } = require('../commands/receipt');
+const { 
+  handleAdminSupport, 
+  handleMarkRead, 
+  handleAdminReplyStart,
+  handleSupportStats,
+  handleUserStats,
+  handleSupportLogs,
+  handleViewSupportDialog,
+  handleSupportUsers
+} = require('../commands/admin');
+const { handleAdminPanelButton } = require('../handlers/support-chat');
 
 const logger = setupLogger();
 
@@ -17,7 +29,7 @@ async function handleCallbackQuery(ctx) {
   try {
     const callbackData = ctx.callbackQuery.data;
     
-    // Обрабатываем различные типы callback-запросов
+    // Обрабатываем различные типы callback-запросов с регулярными выражениями
     if (callbackData.startsWith('select_plan:')) {
       return handlePlanSelection(ctx);
     }
@@ -27,9 +39,22 @@ async function handleCallbackQuery(ctx) {
     }
     
     if (callbackData.startsWith('mark_read:')) {
-      return handleMarkAsRead(ctx);
+      return handleMarkRead(ctx);
     }
     
+    if (callbackData.startsWith('admin_reply:')) {
+      return handleAdminReplyStart(ctx);
+    }
+    
+    if (callbackData.startsWith('view_dialog:')) {
+      return handleViewSupportDialog(ctx);
+    }
+    
+    if (callbackData.startsWith('select_receipt:')) {
+      return handleReceiptSelection(ctx);
+    }
+    
+    // Обрабатываем простые callback-запросы
     switch (callbackData) {
       case 'subscribe':
         await ctx.answerCbQuery();
@@ -65,13 +90,28 @@ async function handleCallbackQuery(ctx) {
         return handleWriteSupportMessage(ctx);
       
       case 'admin_user_stats':
-        return handleAdminUserStats(ctx);
+        return handleUserStats(ctx);
       
       case 'admin_check_expired':
         return handleAdminCheckExpired(ctx);
       
       case 'admin_expiring_soon':
         return handleAdminExpiringSoon(ctx);
+      
+      case 'admin_support':
+        return handleAdminSupport(ctx);
+      
+      case 'admin_support_stats':
+        return handleSupportStats(ctx);
+      
+      case 'admin_support_logs':
+        return handleSupportLogs(ctx);
+      
+      case 'admin_support_users':
+        return handleSupportUsers(ctx);
+      
+      case 'admin_panel':
+        return handleAdminPanelButton(ctx);
       
       default:
         await ctx.answerCbQuery('Неизвестная команда');
@@ -84,6 +124,59 @@ async function handleCallbackQuery(ctx) {
   }
 }
 
+/**
+ * Настройка обработчиков callback-запросов
+ * @param {Object} bot - Экземпляр Telegraf бота
+ */
+function setupCallbackHandlers(bot) {
+  // Обработчик для написания сообщения в поддержку
+  bot.action('write_support_message', handleWriteSupportMessage);
+  
+  // Обработчик для ответа на сообщение пользователя из чата поддержки
+  bot.action(/^reply_to_user:(\d+)$/, handleReplyToUserStart);
+  
+  // Обработчик для выбора плана подписки
+  bot.action(/^select_plan:(\d+)$/, handlePlanSelection);
+  
+  // Обработчик для отмены подписки
+  bot.action('cancel_subscription', handleCancelSubscription);
+  
+  // Обработчик для выбора чека
+  bot.action(/^select_receipt:(\d+)$/, handleReceiptSelection);
+  
+  // Обработчики для админ-панели
+  bot.action('admin_panel', handleAdminPanelButton);
+  bot.action('admin_support', handleAdminSupport);
+  bot.action('admin_support_stats', handleSupportStats);
+  bot.action('admin_support_logs', handleSupportLogs);
+  bot.action('admin_support_users', handleSupportUsers);
+  bot.action('admin_user_stats', handleUserStats);
+  
+  // Обработчик для отметки сообщения как прочитанного
+  bot.action(/^mark_read:(\d+)$/, handleMarkRead);
+  
+  // Обработчик для начала ответа на сообщение
+  bot.action(/^admin_reply:(\d+):(\d+)$/, handleAdminReplyStart);
+  
+  // Обработчик для просмотра диалога поддержки
+  bot.action(/^view_dialog:(\d+)$/, handleViewSupportDialog);
+  
+  // Обработчик для всех неизвестных callback-запросов
+  bot.on('callback_query', async (ctx) => {
+    try {
+      logger.warn(`Unknown callback query: ${ctx.callbackQuery.data}`);
+      await ctx.answerCbQuery('Неизвестный запрос или устаревшая кнопка');
+    } catch (error) {
+      logger.error('Error in unknown callback handler:', error);
+    }
+  });
+  
+  logger.info('Callback handlers set up successfully');
+  
+  return bot;
+}
+
 module.exports = {
-  handleCallbackQuery
+  handleCallbackQuery,
+  setupCallbackHandlers
 }; 

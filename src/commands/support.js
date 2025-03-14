@@ -4,8 +4,8 @@ const { query } = require('../services/database');
 
 const logger = setupLogger();
 
-// ID группы поддержки
-const SUPPORT_CHAT_ID = -4700607213;
+// ID группы поддержки (обновлен после миграции в супергруппу)
+const SUPPORT_CHAT_ID = -1002668096942;
 
 /**
  * Экранирование специальных символов Markdown
@@ -126,6 +126,36 @@ ${escapedMessage}
       logger.info(`Support message from user ${id} sent to support chat`);
     } catch (error) {
       logger.error(`Error sending message to support chat:`, error);
+      
+      // Проверяем, была ли ошибка связана с миграцией чата
+      if (error.response && error.response.parameters && error.response.parameters.migrate_to_chat_id) {
+        const newChatId = error.response.parameters.migrate_to_chat_id;
+        logger.info(`Support chat migrated to new ID: ${newChatId}. Please update SUPPORT_CHAT_ID in the code.`);
+        
+        // Пробуем отправить сообщение в новый чат
+        try {
+          const sentMessage = await ctx.telegram.sendMessage(
+            newChatId, 
+            supportMessage, 
+            { 
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: 'Ответить', callback_data: `reply_to_user:${id}` }]
+                ]
+              }
+            }
+          );
+          
+          // Сохраняем информацию о диалоге в базе данных
+          await saveSupportDialog(id, message, sentMessage.message_id);
+          
+          logger.info(`Support message from user ${id} sent to new support chat ID: ${newChatId}`);
+          return; // Выходим из функции, так как сообщение успешно отправлено
+        } catch (newError) {
+          logger.error(`Error sending message to new support chat:`, newError);
+        }
+      }
       
       // Если не удалось отправить сообщение в группу поддержки, сохраняем его в базе данных
       await saveSupportMessage(id, message);

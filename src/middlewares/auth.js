@@ -1,25 +1,32 @@
 const { saveUser } = require('../services/user');
 const { isSubscriptionActive } = require('../services/subscription');
 const { setupLogger } = require('../utils/logger');
+const { isAdmin } = require('../commands/admin');
 
 const logger = setupLogger();
 
 /**
- * Middleware для сохранения информации о пользователе
+ * Middleware для аутентификации пользователя
  * @param {Object} ctx - Контекст Telegram
  * @param {Function} next - Функция для перехода к следующему middleware
  */
 async function userMiddleware(ctx, next) {
   try {
-    if (ctx.from) {
-      // Сохраняем информацию о пользователе
-      const user = await saveUser(ctx.from);
-      ctx.state.user = user;
-      
-      // Добавляем ID пользователя в контекст для удобства
-      ctx.state.userId = user.id;
-      ctx.state.telegramId = ctx.from.id;
+    // Если сообщение от анонимного пользователя в группе или от системы, пропускаем
+    if (!ctx.from || ctx.from.is_bot || ctx.from.id === 777000 || ctx.from.id === 1087968824) {
+      return next();
     }
+    
+    // Если сообщение из группового чата и не от администратора, пропускаем
+    if (ctx.chat && ctx.chat.type !== 'private' && !isAdmin(ctx.from.id)) {
+      return next();
+    }
+    
+    // Сохраняем пользователя в базе данных
+    const user = await saveUser(ctx.from);
+    
+    // Добавляем пользователя в контекст
+    ctx.state.user = user;
     
     return next();
   } catch (error) {
