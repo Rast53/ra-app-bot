@@ -1,6 +1,6 @@
 # Telegram Bot для управления подписками
 
-Этот бот предназначен для управления подписками на сервис. Он позволяет пользователям оформлять подписки, управлять ими, получать уведомления о статусе подписки и чеки за оплату.
+Этот бот предназначен для управления подписками на сервис через Telegram. Он интегрируется с существующей базой данных PostgreSQL и позволяет пользователям оформлять подписки, управлять ими, получать уведомления о статусе подписки и чеки за оплату.
 
 ## Функциональность
 
@@ -15,27 +15,27 @@
 
 - Node.js
 - Telegraf (фреймворк для Telegram Bot API)
-- PostgreSQL (база данных)
+- PostgreSQL (интеграция с существующей базой данных)
 - Express (для обработки вебхуков)
 - Winston (логирование)
 - Node-cron (планировщик задач)
-- Docker и Docker Compose (для развертывания)
+- Docker (для сборки и развертывания)
 
 ## Установка и запуск
 
 ### Предварительные требования
 
 - Node.js (версия 16 или выше)
-- PostgreSQL (версия 12 или выше)
+- Существующая база данных PostgreSQL
 - Зарегистрированный бот в Telegram через @BotFather
 - Настроенные платежи в Telegram через @BotFather и Stripe/Sberbank/Yookassa
-- Docker и Docker Compose (для развертывания в контейнерах)
+- Docker (для сборки и развертывания)
 
 ### Установка
 
 1. Клонируйте репозиторий:
    ```
-   git clone https://github.com/yourusername/ra-app-bot.git
+   git clone https://github.com/Rast53/ra-app-bot.git
    cd ra-app-bot
    ```
 
@@ -47,11 +47,6 @@
 3. Создайте файл `.env` на основе `.env.example` и заполните его своими данными:
    ```
    cp .env.example .env
-   ```
-
-4. Создайте базу данных в PostgreSQL:
-   ```
-   createdb ra_app_bot
    ```
 
 ### Запуск
@@ -68,14 +63,15 @@ npm run dev
 npm start
 ```
 
+### Сборка и публикация Docker-образа
+
+Для сборки Docker-образа и публикации его в Docker Hub используйте скрипт `build-push-dockerhub.sh`:
+
+```
+./build-push-dockerhub.sh
+```
+
 ### Развертывание с использованием Docker
-
-#### Предварительные требования
-
-- Docker
-- Docker Compose
-
-#### Сборка и запуск
 
 1. Создайте файл `.env` с необходимыми переменными окружения:
    ```
@@ -85,52 +81,36 @@ npm start
    PORT=3000
    
    # База данных
-   DATABASE_URL=postgres://username:password@postgres:5432/ra_app_bot
+   DATABASE_URL=postgres://username:password@postgres:5432/database_name
    
    # Платежи
    PAYMENT_TOKEN=your_payment_token_here
+   
+   # Администраторы
+   ADMIN_IDS=123456789,987654321
    ```
 
-2. Запустите сервисы с помощью Docker Compose:
+2. Запустите контейнер с помощью Docker:
    ```
-   docker-compose up -d
+   docker run -d --name ra-app-bot --env-file .env rast53/ra-app-bot:latest
    ```
 
-#### Управление сервисами
-
-Для удобства управления сервисами можно использовать скрипт `deploy.sh`:
-
-```
-# Запуск сервисов
-./deploy.sh start
-
-# Остановка сервисов
-./deploy.sh stop
-
-# Перезапуск сервисов
-./deploy.sh restart
-
-# Обновление сервисов
-./deploy.sh update
-
-# Просмотр логов
-./deploy.sh logs
-
-# Проверка статуса сервисов
-./deploy.sh status
-```
-
-### Развертывание на NAS Synology
-
-Для развертывания на NAS Synology необходимо:
-
-1. Установить Docker и Docker Compose на NAS
-2. Скопировать файлы проекта на NAS
-3. Создать файл `.env` с необходимыми переменными окружения
-4. Запустить сервисы с помощью Docker Compose:
+   Или с помощью Docker Compose:
    ```
    docker-compose up -d
    ```
+
+## Интеграция с существующей базой данных
+
+Бот настроен для работы с существующей базой данных PostgreSQL. Он использует следующие таблицы:
+
+- `users` - информация о пользователях
+- `user_subscriptions` - информация о подписках пользователей
+- `subscription_plans` - планы подписок
+- `payments` - информация о платежах
+- `receipts` - чеки за оплату
+
+Для корректной работы бота в базе данных должны быть созданы соответствующие таблицы с необходимыми полями.
 
 ## Структура проекта
 

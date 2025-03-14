@@ -1,7 +1,9 @@
 const { Markup } = require('telegraf');
-const { getSubscriptionPlans } = require('../services/api');
-const { createPayment } = require('../services/payment');
+const { getSubscriptionPlans, getSubscriptionPlan, activateSubscription } = require('../services/api');
+const { createPayment, processSuccessfulPayment, generateReceiptNumber } = require('../services/payment');
 const { setupLogger } = require('../utils/logger');
+const { query } = require('../services/database');
+const crypto = require('crypto');
 
 const logger = setupLogger();
 
@@ -63,28 +65,120 @@ async function subscribeCommand(ctx) {
  */
 async function handlePlanSelection(ctx) {
   try {
-    // Получаем ID плана из callback_data
+    await ctx.answerCbQuery();
+    
+    // Получаем ID выбранного плана из callback_data
     const planId = parseInt(ctx.callbackQuery.data.split(':')[1]);
     
-    // Создаем платеж
-    const { invoice } = await createPayment(ctx, planId);
+    // Получаем информацию о плане
+    const plan = await getSubscriptionPlan(planId);
     
-    // Отправляем инвойс для оплаты
-    await ctx.replyWithInvoice(invoice);
+    if (!plan) {
+      return ctx.reply('Выбранный план подписки не найден. Пожалуйста, попробуйте снова.');
+    }
     
-    // Отправляем сообщение с инструкцией
-    await ctx.reply(
-      'Для завершения подписки, пожалуйста, оплатите счет выше. ' +
-      'После успешной оплаты вы получите подтверждение и доступ к сервису.'
-    );
+    logger.info('Plan info:', plan);
     
-    // Очищаем текущее действие в сессии
-    ctx.session.user.currentAction = null;
+    // Проверяем, является ли план бесплатным
+    const planPrice = plan.price;
+    logger.info(`Plan price: ${planPrice}, type: ${typeof planPrice}`);
     
-    logger.info(`User ${ctx.from.id} selected plan ${planId}`);
+    const price = parseFloat(planPrice);
+    
+    if (price === 0) {
+      // Для бесплатного плана не создаем платеж, а сразу активируем подписку
+      try {
+        // Проверяем, есть ли у пользователя неактивная подписка
+        const subscriptionResult = await query(
+          'SELECT * FROM user_subscriptions WHERE user_id = $1',
+          [ctx.session.user.dbId]
+        );
+        
+        // Генерируем уникальный ID платежа
+        const paymentId = Date.now().toString();
+        
+        // Создаем запись о "платеже" со статусом "completed"
+        // Используем только те колонки, которые точно есть в таблице
+        const paymentResult = await query(
+          `INSERT INTO payments 
+           (user_id, plan_id, amount, status, payment_id) 
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id`,
+          [
+            ctx.session.user.dbId, 
+            planId, 
+            0, 
+            'completed', 
+            paymentId
+          ]
+        );
+        
+        const dbPaymentId = paymentResult.rows[0].id;
+        
+        // Если у пользователя уже есть подписка, обновляем её
+        if (subscriptionResult.rows.length > 0) {
+          // Рассчитываем дату окончания подписки
+          const endDate = new Date();
+          endDate.setDate(endDate.getDate() + plan.duration_days);
+          
+          await query(
+            `UPDATE user_subscriptions 
+             SET plan_id = $1, 
+                 payment_id = $2, 
+                 end_date = $3, 
+                 is_active = true
+             WHERE user_id = $4`,
+            [planId, dbPaymentId, endDate, ctx.session.user.dbId]
+          );
+          
+          logger.info(`Updated subscription for user ${ctx.from.id} to plan ${planId}`);
+        } else {
+          // Активируем подписку через API функцию
+          await activateSubscription(ctx.session.user.dbId, planId, dbPaymentId);
+          logger.info(`Created new subscription for user ${ctx.from.id} with plan ${planId}`);
+        }
+        
+        // Отправляем сообщение об успешной активации
+        await ctx.reply(
+          `✅ Бесплатный план "${plan.name}" успешно активирован!\n\n` +
+          `Срок действия: ${plan.duration_days} дней\n` +
+          `Лимит запросов: ${plan.request_limit}\n\n` +
+          `Доступные модели: ${plan.models_access.join(', ')}`
+        );
+        
+        logger.info(`Free plan ${planId} activated for user ${ctx.from.id}`);
+        return;
+      } catch (error) {
+        logger.error(`Error activating free plan for user ${ctx.from.id}:`, error);
+        return ctx.reply('Произошла ошибка при активации бесплатного плана. Пожалуйста, попробуйте позже или обратитесь в поддержку.');
+      }
+    }
+    
+    // Для платных планов создаем платеж через Telegram
+    try {
+      // Создаем инвойс для оплаты
+      const invoice = await createTelegramInvoice(ctx.session.user.dbId, planId);
+      
+      if (!invoice || !invoice.invoice_link) {
+        return ctx.reply('Не удалось создать ссылку для оплаты. Пожалуйста, попробуйте позже.');
+      }
+      
+      // Отправляем сообщение со ссылкой на оплату
+      await ctx.reply(
+        `Для оформления подписки "${plan.name}" перейдите по ссылке ниже:\n\n` +
+        `${invoice.invoice_link}\n\n` +
+        'После успешной оплаты ваша подписка будет активирована автоматически.',
+        { disable_web_page_preview: true }
+      );
+      
+      logger.info(`Payment invoice created for user ${ctx.from.id}, plan ${planId}`);
+    } catch (error) {
+      logger.error(`Error creating payment for user ${ctx.from.id}:`, error);
+      await ctx.reply('Произошла ошибка при создании платежа. Пожалуйста, попробуйте позже или обратитесь в поддержку.');
+    }
   } catch (error) {
-    logger.error('Error in plan selection:', error);
-    await ctx.reply('Произошла ошибка при создании платежа. Пожалуйста, попробуйте позже.');
+    logger.error('Error in plan selection handler:', error);
+    await ctx.reply('Произошла ошибка при выборе плана подписки. Пожалуйста, попробуйте позже.');
   }
 }
 

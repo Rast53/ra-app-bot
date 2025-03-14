@@ -1,7 +1,8 @@
 const { Markup } = require('telegraf');
-const { getUserSubscription } = require('../services/subscription');
+const { getUserSubscription, cancelSubscription } = require('../services/subscription');
 const { getUser } = require('../services/user');
 const { setupLogger } = require('../utils/logger');
+const { getSubscriptionPlan } = require('../services/api');
 
 const logger = setupLogger();
 
@@ -28,24 +29,37 @@ async function profileCommand(ctx) {
 *Ваш профиль:*
 
 *ID:* ${user.telegram_id}
-*Имя:* ${user.first_name || 'Не указано'}
-*Фамилия:* ${user.last_name || 'Не указана'}
-*Имя пользователя:* ${user.username ? '@' + user.username : 'Не указано'}
-*Дата регистрации:* ${new Date(user.created_at).toLocaleDateString('ru-RU')}
+*Имя:* ${user.full_name ? user.full_name.split(' ')[0] : 'Не указано'}
+*Фамилия:* ${user.full_name && user.full_name.split(' ').length > 1 ? user.full_name.split(' ')[1] : 'Не указана'}
+*Имя пользователя:* ${user.telegram_username ? '@' + user.telegram_username.replace(/([_*[\]()~`>#+=|{}.!-])/g, '\\$1') : 'Не указано'}
+*Дата регистрации:* ${user.registration_date && !isNaN(new Date(user.registration_date)) ? new Date(user.registration_date).toLocaleDateString('ru-RU') : 'Не указана'}
 `;
     
     // Добавляем информацию о подписке, если она есть
     if (subscription && ctx.state.hasActiveSubscription) {
-      const endDate = new Date(subscription.end_date).toLocaleDateString('ru-RU', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      });
+      const endDate = subscription.end_date && !isNaN(new Date(subscription.end_date)) 
+        ? new Date(subscription.end_date).toLocaleDateString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+          })
+        : 'Не указана';
+      
+      // Получаем информацию о плане подписки
+      let planName = 'Неизвестный план';
+      try {
+        const plan = await getSubscriptionPlan(subscription.plan_id);
+        if (plan && plan.name) {
+          planName = plan.name;
+        }
+      } catch (error) {
+        logger.error(`Error getting plan info for plan ${subscription.plan_id}:`, error);
+      }
       
       message += `
 *Информация о подписке:*
 
-*План:* ${subscription.plan_id}
+*План:* ${planName}
 *Статус:* Активна
 *Дата окончания:* ${endDate}
 `;

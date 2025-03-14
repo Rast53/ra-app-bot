@@ -5,17 +5,24 @@ const logger = setupLogger();
 
 /**
  * Получение информации о подписке пользователя
- * @param {number} telegramId - Telegram ID пользователя
+ * @param {number|string} telegramId - Telegram ID пользователя
  * @returns {Promise<Object>} Информация о подписке
  */
 async function getUserSubscription(telegramId) {
   try {
+    // Преобразуем telegramId в число
+    const numericTelegramId = Number(telegramId);
+    
     const result = await query(
-      `SELECT s.*, p.payment_id, p.status as payment_status
-       FROM bot_subscriptions s
-       LEFT JOIN bot_payments p ON s.payment_id = p.payment_id
-       WHERE s.telegram_id = $1 AND s.is_active = true`,
-      [telegramId]
+      `SELECT us.*, p.payment_id, p.status as payment_status
+       FROM user_subscriptions us
+       JOIN users u ON us.user_id = u.id
+       LEFT JOIN payments p ON us.payment_id = p.id
+       WHERE u.telegram_id = $1 AND us.is_active = true
+       AND us.end_date > NOW()
+       ORDER BY us.end_date DESC
+       LIMIT 1`,
+      [numericTelegramId]
     );
     
     if (result.rows.length === 0) {
@@ -31,7 +38,7 @@ async function getUserSubscription(telegramId) {
 
 /**
  * Проверка активности подписки пользователя
- * @param {number} telegramId - Telegram ID пользователя
+ * @param {number|string} telegramId - Telegram ID пользователя
  * @returns {Promise<boolean>} Активна ли подписка
  */
 async function isSubscriptionActive(telegramId) {
@@ -54,18 +61,22 @@ async function isSubscriptionActive(telegramId) {
 
 /**
  * Получение информации о всех подписках пользователя
- * @param {number} telegramId - Telegram ID пользователя
+ * @param {number|string} telegramId - Telegram ID пользователя
  * @returns {Promise<Array>} Список подписок
  */
 async function getUserSubscriptions(telegramId) {
   try {
+    // Преобразуем telegramId в число
+    const numericTelegramId = Number(telegramId);
+    
     const result = await query(
-      `SELECT s.*, p.payment_id, p.status as payment_status
-       FROM bot_subscriptions s
-       LEFT JOIN bot_payments p ON s.payment_id = p.payment_id
-       WHERE s.telegram_id = $1
-       ORDER BY s.created_at DESC`,
-      [telegramId]
+      `SELECT us.*, p.payment_id, p.status as payment_status
+       FROM user_subscriptions us
+       JOIN users u ON us.user_id = u.id
+       LEFT JOIN payments p ON us.payment_id = p.id
+       WHERE u.telegram_id = $1
+       ORDER BY us.created_at DESC`,
+      [numericTelegramId]
     );
     
     return result.rows;
@@ -77,16 +88,22 @@ async function getUserSubscriptions(telegramId) {
 
 /**
  * Отмена подписки пользователя
- * @param {number} telegramId - Telegram ID пользователя
+ * @param {number|string} telegramId - Telegram ID пользователя
  * @returns {Promise<boolean>} Результат отмены подписки
  */
 async function cancelSubscription(telegramId) {
   try {
+    // Преобразуем telegramId в число
+    const numericTelegramId = Number(telegramId);
+    
     const result = await query(
-      `UPDATE bot_subscriptions
-       SET is_active = false, updated_at = NOW()
-       WHERE telegram_id = $1 AND is_active = true`,
-      [telegramId]
+      `UPDATE user_subscriptions us
+       SET is_active = false
+       FROM users u
+       WHERE us.user_id = u.id
+       AND u.telegram_id = $1 
+       AND us.is_active = true`,
+      [numericTelegramId]
     );
     
     return result.rowCount > 0;
@@ -103,10 +120,12 @@ async function cancelSubscription(telegramId) {
 async function checkExpiredSubscriptions() {
   try {
     const result = await query(
-      `SELECT s.*, u.telegram_id
-       FROM bot_subscriptions s
-       JOIN bot_users u ON s.telegram_id = u.telegram_id
-       WHERE s.is_active = true AND s.end_date < NOW()`
+      `SELECT us.*, u.telegram_id
+       FROM user_subscriptions us
+       JOIN users u ON us.user_id = u.id
+       WHERE us.is_active = true 
+       AND us.end_date < NOW()
+       AND u.telegram_id IS NOT NULL`
     );
     
     // Деактивируем истекшие подписки
@@ -114,7 +133,7 @@ async function checkExpiredSubscriptions() {
       const ids = result.rows.map(row => row.id);
       
       await query(
-        `UPDATE bot_subscriptions
+        `UPDATE user_subscriptions
          SET is_active = false, updated_at = NOW()
          WHERE id = ANY($1)`,
         [ids]
@@ -138,12 +157,13 @@ async function checkExpiredSubscriptions() {
 async function getExpiringSubscriptions(days = 3) {
   try {
     const result = await query(
-      `SELECT s.*, u.telegram_id
-       FROM bot_subscriptions s
-       JOIN bot_users u ON s.telegram_id = u.telegram_id
-       WHERE s.is_active = true 
-       AND s.end_date > NOW() 
-       AND s.end_date < NOW() + INTERVAL '${days} days'`
+      `SELECT us.*, u.telegram_id
+       FROM user_subscriptions us
+       JOIN users u ON us.user_id = u.id
+       WHERE us.is_active = true 
+       AND us.end_date > NOW() 
+       AND us.end_date < NOW() + INTERVAL '${days} days'
+       AND u.telegram_id IS NOT NULL`
     );
     
     return result.rows;

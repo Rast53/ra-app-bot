@@ -2,6 +2,7 @@ const { Markup } = require('telegraf');
 const { getUserStats, getAllUsers } = require('../services/user');
 const { checkExpiredSubscriptions, getExpiringSubscriptions } = require('../services/subscription');
 const { setupLogger } = require('../utils/logger');
+const { query } = require('../services/database');
 
 const logger = setupLogger();
 
@@ -158,9 +159,116 @@ async function handleAdminExpiringSoon(ctx) {
   }
 }
 
+/**
+ * Обработчик команды /admin_support
+ * @param {Object} ctx - Контекст Telegram
+ */
+async function adminSupportCommand(ctx) {
+  try {
+    // Проверяем, существует ли таблица support_messages
+    const tableResult = await query(
+      `SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'support_messages'
+      )`
+    );
+    
+    if (!tableResult.rows[0].exists) {
+      return ctx.reply('Таблица сообщений поддержки не найдена.');
+    }
+    
+    // Получаем непрочитанные сообщения поддержки
+    const result = await query(
+      `SELECT sm.*, u.first_name, u.last_name, u.username
+       FROM support_messages sm
+       JOIN users u ON sm.user_id = u.id
+       WHERE sm.is_read = false
+       ORDER BY sm.created_at DESC
+       LIMIT 10`
+    );
+    
+    if (result.rows.length === 0) {
+      return ctx.reply('Нет непрочитанных сообщений поддержки.');
+    }
+    
+    // Формируем сообщение с непрочитанными сообщениями
+    let message = `*Непрочитанные сообщения поддержки (${result.rows.length}):*\n\n`;
+    
+    for (const [index, row] of result.rows.entries()) {
+      const username = row.username ? `@${row.username}` : 'без имени';
+      const date = new Date(row.created_at).toLocaleString('ru-RU');
+      
+      message += `*Сообщение #${index + 1}*\n`;
+      message += `От: ${row.first_name} ${row.last_name || ''} (${username})\n`;
+      message += `ID: ${row.telegram_id}\n`;
+      message += `Дата: ${date}\n`;
+      message += `Сообщение: ${row.message}\n\n`;
+      
+      // Создаем кнопки для каждого сообщения
+      const buttons = [
+        [
+          Markup.button.callback(`✅ Отметить как прочитанное #${index + 1}`, `mark_read:${row.id}`),
+          Markup.button.callback(`↩️ Ответить #${index + 1}`, `reply_to_user:${row.telegram_id}`)
+        ]
+      ];
+      
+      // Отправляем сообщение с кнопками
+      await ctx.replyWithMarkdown(
+        `*Сообщение #${index + 1}*\n` +
+        `От: ${row.first_name} ${row.last_name || ''} (${username})\n` +
+        `ID: ${row.telegram_id}\n` +
+        `Дата: ${date}\n` +
+        `Сообщение: ${row.message}`,
+        Markup.inlineKeyboard(buttons)
+      );
+    }
+    
+    logger.info(`Admin ${ctx.from.id} viewed support messages`);
+  } catch (error) {
+    logger.error('Error in admin support command:', error);
+    await ctx.reply('Произошла ошибка при получении сообщений поддержки. Пожалуйста, попробуйте позже.');
+  }
+}
+
+/**
+ * Обработчик отметки сообщения как прочитанного
+ * @param {Object} ctx - Контекст Telegram
+ */
+async function handleMarkAsRead(ctx) {
+  try {
+    await ctx.answerCbQuery();
+    
+    // Получаем ID сообщения из callback_data
+    const messageId = parseInt(ctx.callbackQuery.data.split(':')[1]);
+    
+    // Отмечаем сообщение как прочитанное
+    const result = await query(
+      `UPDATE support_messages
+       SET is_read = true
+       WHERE id = $1
+       RETURNING *`,
+      [messageId]
+    );
+    
+    if (result.rowCount === 0) {
+      return ctx.reply('Сообщение не найдено или уже отмечено как прочитанное.');
+    }
+    
+    // Отправляем подтверждение
+    await ctx.reply(`✅ Сообщение #${messageId} отмечено как прочитанное.`);
+    
+    logger.info(`Admin ${ctx.from.id} marked support message ${messageId} as read`);
+  } catch (error) {
+    logger.error('Error in mark as read handler:', error);
+    await ctx.reply('Произошла ошибка при отметке сообщения как прочитанного. Пожалуйста, попробуйте позже.');
+  }
+}
+
 module.exports = {
   adminCommand,
   handleAdminUserStats,
   handleAdminCheckExpired,
-  handleAdminExpiringSoon
+  handleAdminExpiringSoon,
+  adminSupportCommand,
+  handleMarkAsRead
 }; 

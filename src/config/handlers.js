@@ -1,6 +1,7 @@
 const { handleTextMessage } = require('../handlers/text');
 const { handleCallbackQuery } = require('../handlers/callback');
 const { handlePreCheckoutQuery, handleSuccessfulPayment } = require('../handlers/payment');
+const { setupSupportChatHandlers } = require('../handlers/support-chat');
 const { setupLogger } = require('../utils/logger');
 
 const logger = setupLogger();
@@ -10,6 +11,10 @@ const logger = setupLogger();
  * @param {Object} bot - Экземпляр Telegraf бота
  */
 function setupHandlers(bot) {
+  // Настройка обработчиков для чата поддержки
+  // Важно: этот обработчик должен быть первым, чтобы перехватывать сообщения в чате поддержки
+  setupSupportChatHandlers(bot);
+  
   // Обработчик текстовых сообщений
   bot.on('text', handleTextMessage);
   

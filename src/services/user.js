@@ -12,31 +12,30 @@ async function saveUser(user) {
   try {
     const { id, username, first_name, last_name, language_code, is_premium } = user;
     
+    // Преобразуем id в строку, так как в базе данных он хранится как строка
+    const stringId = String(id);
+    
     // Проверяем, существует ли пользователь
     const existingUser = await query(
-      'SELECT * FROM bot_users WHERE telegram_id = $1',
-      [id]
+      'SELECT * FROM users WHERE CAST(telegram_id AS TEXT) = $1',
+      [stringId]
     );
     
     if (existingUser.rows.length > 0) {
       // Обновляем существующего пользователя
       const result = await query(
-        `UPDATE bot_users 
-         SET username = $1, 
-             first_name = $2, 
-             last_name = $3, 
-             language_code = $4, 
-             is_premium = $5, 
-             updated_at = NOW() 
-         WHERE telegram_id = $6 
+        `UPDATE users 
+         SET telegram_username = $1, 
+             full_name = $2,
+             telegram_photo_url = $3,
+             last_login = NOW() 
+         WHERE CAST(telegram_id AS TEXT) = $4 
          RETURNING *`,
         [
-          username || existingUser.rows[0].username,
-          first_name || existingUser.rows[0].first_name,
-          last_name || existingUser.rows[0].last_name,
-          language_code || existingUser.rows[0].language_code,
-          is_premium !== undefined ? is_premium : existingUser.rows[0].is_premium,
-          id
+          username || existingUser.rows[0].telegram_username,
+          `${first_name || ''} ${last_name || ''}`.trim() || existingUser.rows[0].full_name,
+          user.photo_url || existingUser.rows[0].telegram_photo_url,
+          stringId
         ]
       );
       
@@ -45,11 +44,16 @@ async function saveUser(user) {
     } else {
       // Создаем нового пользователя
       const result = await query(
-        `INSERT INTO bot_users 
-         (telegram_id, username, first_name, last_name, language_code, is_premium) 
-         VALUES ($1, $2, $3, $4, $5, $6) 
+        `INSERT INTO users 
+         (telegram_id, telegram_username, full_name, telegram_photo_url, registration_date, last_login) 
+         VALUES ($1, $2, $3, $4, NOW(), NOW()) 
          RETURNING *`,
-        [id, username, first_name, last_name, language_code, is_premium || false]
+        [
+          stringId, 
+          username, 
+          `${first_name || ''} ${last_name || ''}`.trim(), 
+          user.photo_url || null
+        ]
       );
       
       logger.info(`Created new user: ${id}`);
@@ -63,14 +67,17 @@ async function saveUser(user) {
 
 /**
  * Получение пользователя по Telegram ID
- * @param {number} telegramId - Telegram ID пользователя
+ * @param {number|string} telegramId - Telegram ID пользователя
  * @returns {Promise<Object>} Пользователь
  */
 async function getUser(telegramId) {
   try {
+    // Преобразуем telegramId в строку, так как в базе данных он хранится как строка
+    const stringTelegramId = String(telegramId);
+    
     const result = await query(
-      'SELECT * FROM bot_users WHERE telegram_id = $1',
-      [telegramId]
+      'SELECT * FROM users WHERE CAST(telegram_id AS TEXT) = $1',
+      [stringTelegramId]
     );
     
     if (result.rows.length === 0) {
@@ -85,13 +92,13 @@ async function getUser(telegramId) {
 }
 
 /**
- * Получение всех пользователей
+ * Получение всех пользователей с Telegram ID
  * @returns {Promise<Array>} Список пользователей
  */
 async function getAllUsers() {
   try {
     const result = await query(
-      'SELECT * FROM bot_users ORDER BY created_at DESC'
+      'SELECT * FROM users WHERE telegram_id IS NOT NULL ORDER BY registration_date DESC'
     );
     
     return result.rows;
@@ -107,12 +114,12 @@ async function getAllUsers() {
  */
 async function getUserStats() {
   try {
-    const totalUsers = await query('SELECT COUNT(*) FROM bot_users');
+    const totalUsers = await query('SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL');
     const activeSubscriptions = await query(
-      'SELECT COUNT(*) FROM bot_subscriptions WHERE is_active = true AND end_date > NOW()'
+      'SELECT COUNT(*) FROM user_subscriptions us JOIN users u ON us.user_id = u.id WHERE u.telegram_id IS NOT NULL AND us.is_active = true AND us.end_date > NOW()'
     );
     const newUsersToday = await query(
-      "SELECT COUNT(*) FROM bot_users WHERE created_at > NOW() - INTERVAL '1 day'"
+      "SELECT COUNT(*) FROM users WHERE telegram_id IS NOT NULL AND registration_date > NOW() - INTERVAL '1 day'"
     );
     
     return {

@@ -1,5 +1,5 @@
 const { setupLogger } = require('../utils/logger');
-const { handleSupportMessage } = require('../commands/support');
+const { handleSupportMessage, handleContinueSupportDialog, handleAdminReply } = require('../commands/support');
 const { startCommand } = require('../commands/start');
 const { helpCommand } = require('../commands/help');
 const { subscribeCommand } = require('../commands/subscribe');
@@ -19,6 +19,17 @@ async function handleTextMessage(ctx) {
     // Проверяем, находится ли пользователь в режиме написания сообщения в поддержку
     if (ctx.session.user.currentAction === 'writing_support_message') {
       return handleSupportMessage(ctx);
+    }
+    
+    // Проверяем, является ли сообщение ответом на сообщение от поддержки
+    const isReplyToSupport = await handleContinueSupportDialog(ctx);
+    if (isReplyToSupport) {
+      return;
+    }
+    
+    // Проверяем, находится ли администратор в режиме ответа на сообщение поддержки
+    if (ctx.session.support && ctx.session.support.currentAction === 'replying_to_user') {
+      return handleAdminReply(ctx);
     }
     
     // Обрабатываем текстовые команды с клавиатуры

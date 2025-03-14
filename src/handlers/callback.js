@@ -2,8 +2,8 @@ const { setupLogger } = require('../utils/logger');
 const { handlePlanSelection, handleCancelSubscription } = require('../commands/subscribe');
 const { handleCancelActiveSubscription, handleConfirmCancelSubscription, handleCancelOperation } = require('../commands/profile');
 const { handleGetReceipt } = require('../commands/receipt');
-const { handleWriteSupportMessage } = require('../commands/support');
-const { handleAdminUserStats, handleAdminCheckExpired, handleAdminExpiringSoon } = require('../commands/admin');
+const { handleWriteSupportMessage, handleReplyToUserStart } = require('../commands/support');
+const { handleAdminUserStats, handleAdminCheckExpired, handleAdminExpiringSoon, handleMarkAsRead } = require('../commands/admin');
 const { subscribeCommand } = require('../commands/subscribe');
 const { profileCommand } = require('../commands/profile');
 
@@ -20,6 +20,14 @@ async function handleCallbackQuery(ctx) {
     // Обрабатываем различные типы callback-запросов
     if (callbackData.startsWith('select_plan:')) {
       return handlePlanSelection(ctx);
+    }
+    
+    if (callbackData.startsWith('reply_to_user:')) {
+      return handleReplyToUserStart(ctx);
+    }
+    
+    if (callbackData.startsWith('mark_read:')) {
+      return handleMarkAsRead(ctx);
     }
     
     switch (callbackData) {

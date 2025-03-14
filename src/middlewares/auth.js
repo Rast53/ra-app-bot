@@ -15,6 +15,10 @@ async function userMiddleware(ctx, next) {
       // Сохраняем информацию о пользователе
       const user = await saveUser(ctx.from);
       ctx.state.user = user;
+      
+      // Добавляем ID пользователя в контекст для удобства
+      ctx.state.userId = user.id;
+      ctx.state.telegramId = ctx.from.id;
     }
     
     return next();
@@ -74,10 +78,28 @@ async function requireSubscription(ctx, next) {
  */
 async function adminMiddleware(ctx, next) {
   try {
-    const adminIds = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',').map(id => parseInt(id.trim())) : [];
+    // Получаем ID администраторов из переменной окружения
+    let adminIds = [];
+    
+    if (process.env.ADMIN_IDS) {
+      // Разбиваем строку с ID администраторов и преобразуем их в числа
+      adminIds = process.env.ADMIN_IDS.split(',')
+        .map(id => id.trim())
+        .filter(id => id) // Удаляем пустые строки
+        .map(id => parseInt(id));
+    }
+    
+    // Если список администраторов пуст, используем ID создателя бота
+    if (adminIds.length === 0 && process.env.CREATOR_ID) {
+      adminIds.push(parseInt(process.env.CREATOR_ID));
+    }
+    
+    logger.info(`Admin IDs from env: ${process.env.ADMIN_IDS || 'not set'}`);
+    logger.info(`Parsed admin IDs: ${adminIds.join(', ') || 'none'}`);
+    logger.info(`Current user ID: ${ctx.from.id}, is admin: ${adminIds.includes(ctx.from.id)}`);
     
     // Проверяем, является ли пользователь администратором
-    if (!adminIds.includes(ctx.from.id)) {
+    if (adminIds.length > 0 && !adminIds.includes(ctx.from.id)) {
       return ctx.reply('У вас нет доступа к этой команде.');
     }
     

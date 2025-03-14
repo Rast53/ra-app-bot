@@ -4,7 +4,7 @@ const { subscribeCommand } = require('../commands/subscribe');
 const { profileCommand } = require('../commands/profile');
 const { receiptCommand } = require('../commands/receipt');
 const { supportCommand } = require('../commands/support');
-const { adminCommand } = require('../commands/admin');
+const { adminCommand, adminSupportCommand } = require('../commands/admin');
 const { adminMiddleware } = require('../middlewares/auth');
 const { setupLogger } = require('../utils/logger');
 
@@ -25,6 +25,7 @@ function setupCommands(bot) {
   
   // Команды для администраторов
   bot.command('admin', adminMiddleware, adminCommand);
+  bot.command('admin_support', adminMiddleware, adminSupportCommand);
   
   // Устанавливаем команды в меню бота
   bot.telegram.setMyCommands([
