@@ -4,20 +4,12 @@ const { checkExpiredSubscriptions, getExpiringSubscriptions } = require('../serv
 const { setupLogger } = require('../utils/logger');
 const { query } = require('../services/database');
 const { getSupportChatStats } = require('../handlers/support-chat');
+const { isAdmin } = require('../utils/admin-utils');
 
 const logger = setupLogger();
 
-// Список ID администраторов
+// Список ID администраторов (для обратной совместимости)
 const ADMIN_IDS = (process.env.ADMIN_IDS || '').split(',').map(id => parseInt(id.trim())).filter(Boolean);
-
-/**
- * Проверка, является ли пользователь администратором
- * @param {number} userId - ID пользователя в Telegram
- * @returns {boolean} Результат проверки
- */
-function isAdmin(userId) {
-  return ADMIN_IDS.includes(userId);
-}
 
 /**
  * Обработчик команды /admin
@@ -695,7 +687,6 @@ module.exports = {
   handleAdminReplyStart,
   handleSupportStats,
   handleUserStats,
-  isAdmin,
   ADMIN_IDS,
   handleSupportLogs,
   handleViewSupportDialog,

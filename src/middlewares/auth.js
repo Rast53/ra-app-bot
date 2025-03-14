@@ -1,7 +1,7 @@
 const { saveUser } = require('../services/user');
 const { isSubscriptionActive } = require('../services/subscription');
 const { setupLogger } = require('../utils/logger');
-const { isAdmin } = require('../commands/admin');
+const { isAdmin } = require('../utils/admin-utils');
 
 const logger = setupLogger();
 

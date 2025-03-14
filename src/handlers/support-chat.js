@@ -2,7 +2,7 @@ const { setupLogger } = require('../utils/logger');
 const { handleSupportReply, SUPPORT_CHAT_ID } = require('../commands/support');
 const { query } = require('../services/database');
 const { Markup } = require('telegraf');
-const { isAdmin } = require('../commands/admin');
+const { isAdmin } = require('../utils/admin-utils');
 
 const logger = setupLogger();
 
@@ -60,23 +60,58 @@ async function logSupportChatMessage(ctx, isReply) {
 /**
  * Добавление кнопки администратора в чат поддержки
  * @param {Object} ctx - Контекст Telegram
+ * @param {boolean} forceAdd - Принудительно добавить кнопку, даже если сообщение не от администратора
  */
-async function addAdminButtonToSupportChat(ctx) {
+async function addAdminButtonToSupportChat(ctx, forceAdd = false) {
   try {
-    // Проверяем, является ли пользователь администратором
-    if (isAdmin(ctx.from.id)) {
+    // Проверяем, является ли пользователь администратором или установлен флаг принудительного добавления
+    if (forceAdd || isAdmin(ctx.from.id)) {
       // Создаем клавиатуру с кнопкой администратора
-      const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('Панель администратора', 'admin_panel')]
-      ]);
+      const keyboard = {
+        keyboard: [
+          ['Панель администратора']
+        ],
+        resize_keyboard: true,
+        persistent: true,
+        is_persistent: true
+      };
       
       // Отправляем сообщение с клавиатурой
-      await ctx.reply('Доступные действия:', keyboard);
+      await ctx.reply('Доступные действия:', { reply_markup: keyboard });
       
       logger.info(`Admin button added to support chat for admin ${ctx.from.id}`);
     }
   } catch (error) {
     logger.error('Error adding admin button to support chat:', error);
+  }
+}
+
+/**
+ * Отправка приветственного сообщения с кнопкой администратора в чат поддержки
+ * @param {Object} bot - Экземпляр Telegraf бота
+ */
+async function sendWelcomeMessageToSupportChat(bot) {
+  try {
+    // Создаем клавиатуру с кнопкой администратора
+    const keyboard = {
+      keyboard: [
+        ['Панель администратора']
+      ],
+      resize_keyboard: true,
+      persistent: true,
+      is_persistent: true
+    };
+    
+    // Отправляем приветственное сообщение с клавиатурой
+    await bot.telegram.sendMessage(
+      SUPPORT_CHAT_ID,
+      'Бот запущен! Используйте кнопку ниже для доступа к панели администратора:',
+      { reply_markup: keyboard }
+    );
+    
+    logger.info('Welcome message with admin button sent to support chat');
+  } catch (error) {
+    logger.error('Error sending welcome message to support chat:', error);
   }
 }
 
@@ -114,12 +149,117 @@ async function handleAdminPanelButton(ctx) {
 }
 
 /**
+ * Принудительное отображение клавиатуры администратора в чате поддержки
+ * @param {Object} bot - Экземпляр Telegraf бота
+ */
+async function forceShowAdminKeyboard(bot) {
+  try {
+    // Создаем клавиатуру с кнопкой администратора
+    const keyboard = {
+      keyboard: [
+        ['Панель администратора']
+      ],
+      resize_keyboard: true,
+      persistent: true,
+      is_persistent: true
+    };
+    
+    // Отправляем команду для отображения клавиатуры
+    await bot.telegram.sendChatAction(SUPPORT_CHAT_ID, 'typing');
+    
+    // Отправляем сообщение с клавиатурой
+    await bot.telegram.sendMessage(
+      SUPPORT_CHAT_ID,
+      'Клавиатура администратора активирована. Используйте кнопку ниже для доступа к панели администратора:',
+      { reply_markup: keyboard }
+    );
+    
+    logger.info('Admin keyboard forcefully shown in support chat');
+  } catch (error) {
+    logger.error('Error forcing admin keyboard in support chat:', error);
+  }
+}
+
+/**
  * Настройка обработчиков для чата поддержки
  * @param {Object} bot - Экземпляр Telegraf бота
  */
 function setupSupportChatHandlers(bot) {
+  // Отправляем приветственное сообщение с кнопкой администратора при запуске бота
+  sendWelcomeMessageToSupportChat(bot).catch(error => {
+    logger.error('Error sending welcome message to support chat:', error);
+  });
+  
+  // Принудительно отображаем клавиатуру администратора в чате поддержки
+  forceShowAdminKeyboard(bot).catch(error => {
+    logger.error('Error forcing admin keyboard in support chat:', error);
+  });
+  
+  // Обработчик команды для принудительного отображения клавиатуры администратора
+  bot.command('show_keyboard', async (ctx) => {
+    try {
+      // Проверяем, что команда отправлена в чат поддержки
+      if (ctx.chat && ctx.chat.id === SUPPORT_CHAT_ID) {
+        // Проверяем, является ли пользователь администратором
+        if (!isAdmin(ctx.from.id)) {
+          logger.info(`User ${ctx.from.id} tried to show admin keyboard but is not an admin`);
+          return ctx.reply('У вас нет доступа к этой функции.');
+        }
+        
+        // Создаем клавиатуру с кнопкой администратора
+        const keyboard = {
+          keyboard: [
+            ['Панель администратора']
+          ],
+          resize_keyboard: true,
+          persistent: true,
+          is_persistent: true
+        };
+        
+        // Отправляем сообщение с клавиатурой
+        await ctx.reply('Клавиатура администратора активирована:', { reply_markup: keyboard });
+        
+        logger.info(`Admin ${ctx.from.id} manually activated admin keyboard`);
+      }
+    } catch (error) {
+      logger.error('Error in show keyboard command handler:', error);
+      await ctx.reply('Произошла ошибка при отображении клавиатуры. Пожалуйста, попробуйте позже.');
+    }
+  });
+  
   // Обработчик кнопки администратора
   bot.action('admin_panel', handleAdminPanelButton);
+  
+  // Обработчик текстовой кнопки "Панель администратора"
+  bot.hears('Панель администратора', async (ctx) => {
+    try {
+      // Проверяем, что сообщение отправлено в чат поддержки
+      if (ctx.chat && ctx.chat.id === SUPPORT_CHAT_ID) {
+        // Проверяем, является ли пользователь администратором
+        if (!isAdmin(ctx.from.id)) {
+          logger.info(`User ${ctx.from.id} tried to access admin panel but is not an admin`);
+          return ctx.reply('У вас нет доступа к этой функции.');
+        }
+        
+        // Создаем клавиатуру с действиями администратора
+        const keyboard = Markup.inlineKeyboard([
+          [Markup.button.callback('Просмотр сообщений поддержки', 'admin_support')],
+          [Markup.button.callback('Пользователи поддержки', 'admin_support_users')],
+          [Markup.button.callback('Статистика поддержки', 'admin_support_stats')],
+          [Markup.button.callback('Логи чата поддержки', 'admin_support_logs')],
+          [Markup.button.callback('Статистика пользователей', 'admin_user_stats')]
+        ]);
+        
+        // Отправляем сообщение с клавиатурой
+        await ctx.reply('Выберите действие:', keyboard);
+        
+        logger.info(`Admin ${ctx.from.id} accessed admin panel from support chat`);
+      }
+    } catch (error) {
+      logger.error('Error in admin panel button handler:', error);
+      await ctx.reply('Произошла ошибка при выполнении команды. Пожалуйста, попробуйте позже.');
+    }
+  });
   
   // Обработчик всех текстовых сообщений в чате поддержки
   bot.on('text', async (ctx, next) => {
@@ -145,9 +285,6 @@ function setupSupportChatHandlers(bot) {
         
         // Логируем обычное сообщение в чате поддержки
         await logSupportChatMessage(ctx, false);
-        
-        // Добавляем кнопку администратора, если пользователь является администратором
-        await addAdminButtonToSupportChat(ctx);
       }
       
       // Если это не сообщение в чате поддержки или не ответ, передаем управление следующему обработчику
@@ -179,9 +316,6 @@ function setupSupportChatHandlers(bot) {
               { reply_to_message_id: ctx.message.message_id }
             );
           }
-          
-          // Добавляем кнопку администратора, если пользователь является администратором
-          await addAdminButtonToSupportChat(ctx);
         }
         
         return next();
@@ -258,5 +392,7 @@ async function getSupportChatStats(days = 7) {
 module.exports = {
   setupSupportChatHandlers,
   getSupportChatStats,
-  handleAdminPanelButton
+  handleAdminPanelButton,
+  sendWelcomeMessageToSupportChat,
+  forceShowAdminKeyboard
 }; 
