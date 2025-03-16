@@ -1,5 +1,6 @@
-FROM node:16-alpine
+FROM node:18-alpine
 
+# Создаем директорию приложения
 WORKDIR /app
 
 # Копируем файлы package.json и package-lock.json

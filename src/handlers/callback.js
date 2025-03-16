@@ -3,13 +3,12 @@ const { handlePlanSelection, handleCancelSubscription } = require('../commands/s
 const { handleCancelActiveSubscription, handleConfirmCancelSubscription, handleCancelOperation } = require('../commands/profile');
 const { handleGetReceipt } = require('../commands/receipt');
 const { handleWriteSupportMessage, handleReplyToUserStart } = require('../commands/support');
-const { handleAdminUserStats, handleAdminCheckExpired, handleAdminExpiringSoon, handleMarkAsRead } = require('../commands/admin');
-const { subscribeCommand } = require('../commands/subscribe');
-const { profileCommand } = require('../commands/profile');
-const { handleReceiptSelection } = require('../commands/receipt');
 const { 
-  handleAdminSupport, 
-  handleMarkRead, 
+  handleAdminUserStats, 
+  handleAdminCheckExpired, 
+  handleAdminExpiringSoon, 
+  handleMarkRead,
+  handleAdminSupport,
   handleAdminReplyStart,
   handleSupportStats,
   handleUserStats,
@@ -17,6 +16,10 @@ const {
   handleViewSupportDialog,
   handleSupportUsers
 } = require('../commands/admin');
+const { subscribeCommand } = require('../commands/subscribe');
+const { profileCommand } = require('../commands/profile');
+const { handleReceiptSelection } = require('../commands/receipt');
+const { handleChangeSubscription, handleCancelPlanSelection, handleKeepSubscription } = require('../commands/subscription');
 const { handleAdminPanelButton } = require('../handlers/support-chat');
 
 const logger = setupLogger();
@@ -54,6 +57,10 @@ async function handleCallbackQuery(ctx) {
       return handleReceiptSelection(ctx);
     }
     
+    if (callbackData.startsWith('confirm_plan:')) {
+      return handlePlanSelection(ctx);
+    }
+    
     // Обрабатываем простые callback-запросы
     switch (callbackData) {
       case 'subscribe':
@@ -88,6 +95,15 @@ async function handleCallbackQuery(ctx) {
       
       case 'write_support_message':
         return handleWriteSupportMessage(ctx);
+      
+      case 'change_subscription':
+        return handleChangeSubscription(ctx);
+      
+      case 'cancel_plan_selection':
+        return handleCancelPlanSelection(ctx);
+      
+      case 'keep_subscription':
+        return handleKeepSubscription(ctx);
       
       case 'admin_user_stats':
         return handleUserStats(ctx);
@@ -133,33 +149,94 @@ function setupCallbackHandlers(bot) {
   bot.action('write_support_message', handleWriteSupportMessage);
   
   // Обработчик для ответа на сообщение пользователя из чата поддержки
-  bot.action(/^reply_to_user:(\d+)$/, handleReplyToUserStart);
+  bot.action(/^reply_to_user:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const userId = ctx.match[1];
+    await ctx.reply(`Ответ пользователю ${userId} временно недоступен.`);
+    logger.info(`User ${ctx.from.id} tried to reply to user ${userId} (temporary handler)`);
+  });
   
   // Обработчик для выбора плана подписки
-  bot.action(/^select_plan:(\d+)$/, handlePlanSelection);
+  bot.action(/^select_plan:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const planId = ctx.match[1];
+    await ctx.reply(`Выбор плана ${planId} временно недоступен.`);
+    logger.info(`User ${ctx.from.id} tried to select plan ${planId} (temporary handler)`);
+  });
+  
+  // Обработчик для подтверждения выбора плана
+  bot.action(/^confirm_plan:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const planId = ctx.match[1];
+    await ctx.reply(`Подтверждение плана ${planId} временно недоступно.`);
+    logger.info(`User ${ctx.from.id} tried to confirm plan ${planId} (temporary handler)`);
+  });
   
   // Обработчик для отмены подписки
   bot.action('cancel_subscription', handleCancelSubscription);
   
+  // Обработчик для изменения подписки
+  bot.action('change_subscription', handleChangeSubscription);
+  
+  // Обработчик для отмены выбора плана
+  bot.action('cancel_plan_selection', handleCancelPlanSelection);
+  
+  // Обработчик для отмены отмены подписки
+  bot.action('keep_subscription', handleKeepSubscription);
+  
   // Обработчик для выбора чека
-  bot.action(/^select_receipt:(\d+)$/, handleReceiptSelection);
+  bot.action(/^select_receipt:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const receiptId = ctx.match[1];
+    await ctx.reply(`Выбор чека ${receiptId} временно недоступен.`);
+    logger.info(`User ${ctx.from.id} tried to select receipt ${receiptId} (temporary handler)`);
+  });
   
   // Обработчики для админ-панели
-  bot.action('admin_panel', handleAdminPanelButton);
-  bot.action('admin_support', handleAdminSupport);
-  bot.action('admin_support_stats', handleSupportStats);
-  bot.action('admin_support_logs', handleSupportLogs);
-  bot.action('admin_support_users', handleSupportUsers);
-  bot.action('admin_user_stats', handleUserStats);
+  // Временно отключаем все обработчики админ-панели, которые могут вызывать ошибку
+  bot.action('admin_panel', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply('Админ-панель временно недоступна. Ведутся технические работы.');
+    logger.info(`User ${ctx.from.id} tried to access admin panel (temporary handler)`);
+  });
+  
+  // Временные обработчики для всех админ-функций
+  const tempAdminHandler = async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply('Функция временно недоступна. Ведутся технические работы.');
+    logger.info(`User ${ctx.from.id} tried to access admin function (temporary handler): ${ctx.callbackQuery.data}`);
+  };
+  
+  bot.action('admin_support', tempAdminHandler);
+  bot.action('admin_support_stats', tempAdminHandler);
+  bot.action('admin_support_logs', tempAdminHandler);
+  bot.action('admin_support_users', tempAdminHandler);
+  bot.action('admin_user_stats', tempAdminHandler);
   
   // Обработчик для отметки сообщения как прочитанного
-  bot.action(/^mark_read:(\d+)$/, handleMarkRead);
+  bot.action(/^mark_read:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const messageId = ctx.match[1];
+    await ctx.reply(`Сообщение ${messageId} отмечено как прочитанное (временный обработчик).`);
+    logger.info(`User ${ctx.from.id} tried to mark message ${messageId} as read (temporary handler)`);
+  });
   
   // Обработчик для начала ответа на сообщение
-  bot.action(/^admin_reply:(\d+):(\d+)$/, handleAdminReplyStart);
+  bot.action(/^admin_reply:(\d+):(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const userId = ctx.match[1];
+    const messageId = ctx.match[2];
+    await ctx.reply(`Ответ пользователю ${userId} на сообщение ${messageId} временно недоступен.`);
+    logger.info(`User ${ctx.from.id} tried to reply to user ${userId} message ${messageId} (temporary handler)`);
+  });
   
   // Обработчик для просмотра диалога поддержки
-  bot.action(/^view_dialog:(\d+)$/, handleViewSupportDialog);
+  bot.action(/^view_dialog:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const dialogId = ctx.match[1];
+    await ctx.reply(`Просмотр диалога ${dialogId} временно недоступен.`);
+    logger.info(`User ${ctx.from.id} tried to view dialog ${dialogId} (temporary handler)`);
+  });
   
   // Обработчик для всех неизвестных callback-запросов
   bot.on('callback_query', async (ctx) => {

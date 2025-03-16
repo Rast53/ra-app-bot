@@ -3,79 +3,86 @@ const { setupLogger } = require('../utils/logger');
 
 const logger = setupLogger();
 
-// Создаем пул соединений с базой данных
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 20, // максимальное количество клиентов в пуле
-  idleTimeoutMillis: 30000, // время ожидания перед закрытием неиспользуемых клиентов
-  connectionTimeoutMillis: 2000, // время ожидания при подключении нового клиента
-});
+// Получаем параметры подключения из переменных окружения
+let poolConfig = {};
 
-// Обработка ошибок пула
-pool.on('error', (err) => {
-  logger.error('Unexpected error on idle client', err);
-  process.exit(-1);
-});
+// Проверяем наличие строки подключения DATABASE_URL
+if (process.env.DATABASE_URL) {
+  logger.info('Using DATABASE_URL for connection');
+  poolConfig = {
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false
+  };
+} else {
+  // Используем отдельные параметры подключения
+  const dbHost = process.env.POSTGRES_HOST || '127.0.0.1';
+  const dbPort = parseInt(process.env.POSTGRES_PORT || '5432', 10);
+  const dbName = process.env.POSTGRES_DB || 'postgres';
+  const dbUser = process.env.POSTGRES_USER || 'postgres';
+  const dbPassword = process.env.POSTGRES_PASSWORD || '';
+  const dbSsl = process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false;
+
+  // Логируем параметры подключения (без пароля)
+  logger.info(`Database connection parameters: host=${dbHost}, port=${dbPort}, database=${dbName}, user=${dbUser}, ssl=${!!dbSsl}`);
+
+  poolConfig = {
+    host: dbHost,
+    port: dbPort,
+    database: dbName,
+    user: dbUser,
+    password: dbPassword,
+    ssl: dbSsl
+  };
+}
+
+// Создаем пул соединений с базой данных
+const pool = new Pool(poolConfig);
 
 /**
- * Проверка наличия необходимых полей в таблицах
+ * Подключение к базе данных
+ * @returns {Promise<void>}
  */
-async function checkTables() {
-  const client = await pool.connect();
+async function connectToDatabase() {
   try {
-    // Проверяем наличие поля telegram_id в таблице users
-    const userResult = await client.query(`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_name = 'users' AND column_name = 'telegram_id'
-    `);
+    // Проверяем соединение с базой данных
+    const client = await pool.connect();
     
-    if (userResult.rows.length === 0) {
-      logger.warn('Column telegram_id not found in users table');
-    } else {
-      logger.info('Column telegram_id exists in users table');
-    }
+    // Получаем информацию о текущей базе данных и пользователе
+    const dbInfoResult = await client.query('SELECT current_database(), current_user');
+    const currentDb = dbInfoResult.rows[0].current_database;
+    const currentUser = dbInfoResult.rows[0].current_user;
+    
+    logger.info(`Database connection established to ${currentDb} as ${currentUser}`);
     
     // Проверяем наличие необходимых таблиц
     const tablesResult = await client.query(`
       SELECT table_name 
       FROM information_schema.tables 
-      WHERE table_schema = 'public' AND 
-      table_name IN ('users', 'user_subscriptions', 'payments')
+      WHERE table_schema = 'public' 
+      AND table_name IN ('users', 'user_subscriptions', 'payments')
     `);
     
-    const existingTables = tablesResult.rows.map(row => row.table_name);
-    logger.info(`Found tables: ${existingTables.join(', ')}`);
+    const tables = tablesResult.rows.map(row => row.table_name);
+    logger.info(`Found tables: ${tables.join(', ')}`);
     
-    if (existingTables.length < 3) {
-      logger.warn('Some required tables are missing');
+    // Проверяем наличие колонки telegram_id в таблице users
+    const columnsResult = await client.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'users' AND column_name = 'telegram_id'
+    `);
+    
+    if (columnsResult.rows.length > 0) {
+      logger.info('Column telegram_id exists in users table');
+    } else {
+      logger.warn('Column telegram_id does not exist in users table');
     }
     
-    return true;
-  } catch (err) {
-    logger.error('Error checking database tables:', err);
-    throw err;
-  } finally {
     client.release();
-  }
-}
-
-/**
- * Подключение к базе данных и проверка таблиц
- */
-async function dbConnect() {
-  try {
-    // Проверяем соединение с базой данных
-    const result = await pool.query('SELECT current_database(), current_user');
-    logger.info(`Database connection established to ${result.rows[0].current_database} as ${result.rows[0].current_user}`);
-    
-    // Проверяем таблицы
-    await checkTables();
-    
     return true;
-  } catch (err) {
-    logger.error('Database connection error:', err);
-    throw err;
+  } catch (error) {
+    logger.error('Error connecting to database:', error);
+    throw error;
   }
 }
 
@@ -88,18 +95,22 @@ async function dbConnect() {
 async function query(text, params) {
   const start = Date.now();
   try {
-    const res = await pool.query(text, params);
+    const result = await pool.query(text, params);
     const duration = Date.now() - start;
-    logger.debug('Executed query', { text, duration, rows: res.rowCount });
-    return res;
-  } catch (err) {
-    logger.error('Error executing query', { text, error: err });
-    throw err;
+    
+    if (duration > 1000) {
+      logger.warn(`Slow query (${duration}ms): ${text}`);
+    }
+    
+    return result;
+  } catch (error) {
+    logger.error('Error executing query', { error, text });
+    throw error;
   }
 }
 
 module.exports = {
-  dbConnect,
   query,
+  connectToDatabase,
   pool
 }; 

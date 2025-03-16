@@ -1,5 +1,5 @@
-const { saveUser } = require('../services/user');
-const { isSubscriptionActive } = require('../services/subscription');
+const { query } = require('../services/database');
+const { getUserSubscription } = require('../services/api');
 const { setupLogger } = require('../utils/logger');
 const { isAdmin } = require('../utils/admin-utils');
 
@@ -7,74 +7,81 @@ const logger = setupLogger();
 
 /**
  * Middleware для аутентификации пользователя
- * @param {Object} ctx - Контекст Telegram
- * @param {Function} next - Функция для перехода к следующему middleware
+ * Проверяет наличие пользователя в базе данных и создает его при необходимости
  */
-async function userMiddleware(ctx, next) {
+async function authMiddleware(ctx, next) {
   try {
-    // Если сообщение от анонимного пользователя в группе или от системы, пропускаем
-    if (!ctx.from || ctx.from.is_bot || ctx.from.id === 777000 || ctx.from.id === 1087968824) {
+    // Пропускаем обновления, которые не от пользователя
+    if (!ctx.from) {
       return next();
     }
     
-    // Если сообщение из группового чата и не от администратора, пропускаем
-    if (ctx.chat && ctx.chat.type !== 'private' && !isAdmin(ctx.from.id)) {
-      return next();
+    // Инициализируем сессию, если она не существует
+    if (!ctx.session) {
+      ctx.session = {};
     }
     
-    // Сохраняем пользователя в базе данных
-    const user = await saveUser(ctx.from);
-    
-    // Добавляем пользователя в контекст
-    ctx.state.user = user;
-    
-    return next();
-  } catch (error) {
-    logger.error('Error in user middleware:', error);
-    return next();
-  }
-}
-
-/**
- * Middleware для проверки подписки пользователя
- * @param {Object} ctx - Контекст Telegram
- * @param {Function} next - Функция для перехода к следующему middleware
- */
-async function subscriptionMiddleware(ctx, next) {
-  try {
-    if (ctx.from) {
-      // Проверяем активность подписки
-      const isActive = await isSubscriptionActive(ctx.from.id);
-      ctx.state.hasActiveSubscription = isActive;
+    // Инициализируем объект пользователя в сессии, если его нет
+    if (!ctx.session.user) {
+      ctx.session.user = {};
     }
     
-    return next();
-  } catch (error) {
-    logger.error('Error in subscription middleware:', error);
-    ctx.state.hasActiveSubscription = false;
-    return next();
-  }
-}
-
-/**
- * Middleware для проверки доступа к команде только для пользователей с активной подпиской
- * @param {Object} ctx - Контекст Telegram
- * @param {Function} next - Функция для перехода к следующему middleware
- */
-async function requireSubscription(ctx, next) {
-  try {
-    // Если у пользователя нет активной подписки, отправляем сообщение
-    if (!ctx.state.hasActiveSubscription) {
-      return ctx.reply(
-        'Для использования этой команды необходима активная подписка. ' +
-        'Пожалуйста, оформите подписку с помощью команды /subscribe.'
+    // Инициализируем объект поддержки в сессии, если его нет
+    if (!ctx.session.support) {
+      ctx.session.support = {
+        currentAction: null,
+        replyToUserId: null,
+        replyToMessageId: null
+      };
+    }
+    
+    const telegramId = ctx.from.id;
+    
+    // Проверяем, есть ли пользователь в базе данных
+    const userResult = await query(
+      'SELECT id, username, full_name, telegram_username FROM users WHERE CAST(telegram_id AS TEXT) = $1',
+      [telegramId.toString()]
+    );
+    
+    // Если пользователь не найден, создаем его
+    if (userResult.rows.length === 0) {
+      const fullName = `${ctx.from.first_name || ''} ${ctx.from.last_name || ''}`.trim();
+      const username = ctx.from.username || `user_${telegramId}`;
+      
+      // Создаем пользователя в базе данных
+      const newUserResult = await query(
+        `INSERT INTO users 
+         (telegram_id, username, full_name, telegram_username, registration_date) 
+         VALUES ($1, $2, $3, $4, NOW()) 
+         RETURNING id, username, full_name, telegram_username`,
+        [telegramId.toString(), username, fullName, ctx.from.username || null]
       );
+      
+      // Сохраняем данные пользователя в сессии
+      ctx.session.user.dbId = newUserResult.rows[0].id;
+      ctx.session.user.username = newUserResult.rows[0].username;
+      ctx.session.user.fullName = newUserResult.rows[0].full_name;
+      ctx.session.user.telegramUsername = newUserResult.rows[0].telegram_username;
+      
+      logger.info(`New user created: ${telegramId}`);
+    } else {
+      // Сохраняем данные пользователя в сессии
+      ctx.session.user.dbId = userResult.rows[0].id;
+      ctx.session.user.username = userResult.rows[0].username;
+      ctx.session.user.fullName = userResult.rows[0].full_name;
+      ctx.session.user.telegramUsername = userResult.rows[0].telegram_username;
+      
+      logger.info(`Updated user: ${telegramId}`);
     }
+    
+    // Проверяем наличие активной подписки
+    const subscription = await getUserSubscription(ctx.session.user.dbId);
+    ctx.state.hasActiveSubscription = subscription && subscription.is_active;
     
     return next();
   } catch (error) {
-    logger.error('Error in require subscription middleware:', error);
-    return ctx.reply('Произошла ошибка при проверке подписки. Пожалуйста, попробуйте позже.');
+    logger.error('Error in auth middleware:', error);
+    return next();
   }
 }
 
@@ -118,8 +125,6 @@ async function adminMiddleware(ctx, next) {
 }
 
 module.exports = {
-  userMiddleware,
-  subscriptionMiddleware,
-  requireSubscription,
+  authMiddleware,
   adminMiddleware
 }; 

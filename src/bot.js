@@ -1,7 +1,12 @@
 const { Telegraf, session } = require('telegraf');
 const { setupLogger } = require('./utils/logger');
 const { setupMiddleware } = require('./middleware');
-const { setupHandlers } = require('./handlers');
+const setupHandlers = require('./config/handlers').setupHandlers;
+
+// Импортируем настройки бота
+const setupMiddlewares = require('./config/middlewares');
+const setupCommands = require('./config/commands').setupCommands;
+const setupCronJobs = require('./config/cron').setupCronJobs;
 
 const logger = setupLogger();
 
@@ -25,8 +30,14 @@ function setupBot() {
   // Настраиваем middleware
   setupMiddleware(bot);
   
+  // Настраиваем команды
+  setupCommands(bot);
+  
   // Настраиваем обработчики
   setupHandlers(bot);
+  
+  // Настраиваем cron-задачи
+  setupCronJobs(bot);
   
   // Обработчик ошибок
   bot.catch((err, ctx) => {
@@ -43,6 +54,44 @@ function setupBot() {
   return bot;
 }
 
+// Инициализация бота
+async function initBot(bot) {
+  try {
+    // Настраиваем middleware
+    setupMiddlewares(bot);
+    
+    // Настраиваем команды, если функция существует
+    if (typeof setupCommands === 'function') {
+      setupCommands(bot);
+    } else {
+      logger.warn('Function setupCommands is not defined, skipping command setup');
+    }
+    
+    // Настраиваем обработчики
+    setupHandlers(bot);
+    
+    // Настраиваем cron-задачи, если функция существует
+    if (typeof setupCronJobs === 'function') {
+      setupCronJobs(bot);
+    } else {
+      logger.warn('Function setupCronJobs is not defined, skipping cron jobs setup');
+    }
+    
+    // Запускаем бота
+    await bot.launch();
+    
+    logger.info('Bot started successfully');
+    
+    // Обработка завершения работы
+    process.once('SIGINT', () => bot.stop('SIGINT'));
+    process.once('SIGTERM', () => bot.stop('SIGTERM'));
+  } catch (error) {
+    logger.error('Error initializing bot:', error);
+    throw error;
+  }
+}
+
 module.exports = {
-  setupBot
+  setupBot,
+  initBot
 }; 

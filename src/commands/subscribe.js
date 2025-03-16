@@ -1,6 +1,6 @@
 const { Markup } = require('telegraf');
-const { getSubscriptionPlans, getSubscriptionPlan, activateSubscription } = require('../services/api');
-const { createPayment, processSuccessfulPayment, generateReceiptNumber } = require('../services/payment');
+const { getSubscriptionPlans, getSubscriptionPlan, getUserSubscription, activateSubscription } = require('../services/api');
+const { createPayment, processSuccessfulPayment, generateReceiptNumber, createTelegramInvoice } = require('../services/payment');
 const { setupLogger } = require('../utils/logger');
 const { query } = require('../services/database');
 const crypto = require('crypto');
@@ -60,7 +60,7 @@ async function subscribeCommand(ctx) {
 }
 
 /**
- * Обработчик выбора плана подписки
+ * Обрабатывает выбор плана подписки
  * @param {Object} ctx - Контекст Telegram
  */
 async function handlePlanSelection(ctx) {
@@ -72,22 +72,37 @@ async function handlePlanSelection(ctx) {
     
     // Получаем информацию о плане
     const plan = await getSubscriptionPlan(planId);
-    
-    if (!plan) {
-      return ctx.reply('Выбранный план подписки не найден. Пожалуйста, попробуйте снова.');
-    }
-    
     logger.info('Plan info:', plan);
     
-    // Проверяем, является ли план бесплатным
-    const planPrice = plan.price;
-    logger.info(`Plan price: ${planPrice}, type: ${typeof planPrice}`);
+    if (!plan) {
+      return ctx.reply('План подписки не найден. Пожалуйста, выберите другой план.');
+    }
     
-    const price = parseFloat(planPrice);
+    // Проверяем, что у пользователя есть dbId в сессии
+    if (!ctx.session.user || !ctx.session.user.dbId) {
+      // Получаем ID пользователя из базы данных
+      const userResult = await query(
+        'SELECT id FROM users WHERE CAST(telegram_id AS TEXT) = $1',
+        [ctx.from.id.toString()]
+      );
+      
+      if (userResult.rows.length === 0) {
+        return ctx.reply('Ваш профиль не найден. Пожалуйста, перезапустите бота командой /start.');
+      }
+      
+      // Сохраняем ID пользователя в сессии
+      if (!ctx.session.user) ctx.session.user = {};
+      ctx.session.user.dbId = userResult.rows[0].id;
+    }
     
-    if (price === 0) {
-      // Для бесплатного плана не создаем платеж, а сразу активируем подписку
+    // Проверяем, бесплатный ли план
+    logger.info('Plan price:', plan.price, 'type:', typeof plan.price);
+    const isFree = parseFloat(plan.price) === 0;
+    
+    if (isFree) {
       try {
+        logger.info(`Activating free plan ${planId} for user ${ctx.session.user.dbId}`);
+        
         // Проверяем, есть ли у пользователя неактивная подписка
         const subscriptionResult = await query(
           'SELECT * FROM user_subscriptions WHERE user_id = $1',
@@ -101,15 +116,16 @@ async function handlePlanSelection(ctx) {
         // Используем только те колонки, которые точно есть в таблице
         const paymentResult = await query(
           `INSERT INTO payments 
-           (user_id, plan_id, amount, status, payment_id) 
-           VALUES ($1, $2, $3, $4, $5)
+           (user_id, plan_id, amount, status, payment_id, currency) 
+           VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id`,
           [
             ctx.session.user.dbId, 
             planId, 
             0, 
             'completed', 
-            paymentId
+            paymentId,
+            'RUB'
           ]
         );
         

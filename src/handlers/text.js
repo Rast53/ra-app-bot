@@ -5,6 +5,7 @@ const { helpCommand } = require('../commands/help');
 const { subscribeCommand } = require('../commands/subscribe');
 const { profileCommand } = require('../commands/profile');
 const { supportCommand } = require('../commands/support');
+const { subscriptionCommand } = require('../commands/subscription');
 const { isAdmin } = require('../commands/admin');
 
 const logger = setupLogger();
@@ -15,8 +16,30 @@ const logger = setupLogger();
  */
 async function handleTextMessage(ctx) {
   try {
+    // Инициализируем сессию, если она не существует
+    if (!ctx.session) {
+      ctx.session = {};
+    }
+    
+    // Инициализируем объект пользователя в сессии, если его нет
+    if (!ctx.session.user) {
+      ctx.session.user = {
+        currentAction: null,
+        lastCommand: null
+      };
+    }
+    
+    // Инициализируем объект поддержки в сессии, если его нет
+    if (!ctx.session.support) {
+      ctx.session.support = {
+        currentAction: null,
+        replyToUserId: null,
+        replyToMessageId: null
+      };
+    }
+    
     // Проверяем, является ли пользователь администратором и отвечает ли на сообщение поддержки
-    if (ctx.session.support && ctx.session.support.currentAction === 'replying_to_support' && isAdmin(ctx.from.id)) {
+    if (ctx.session.support.currentAction === 'replying_to_support' && isAdmin(ctx.from.id)) {
       logger.info(`Admin ${ctx.from.id} is replying to support message`);
       return await handleAdminReply(ctx);
     }
@@ -31,9 +54,50 @@ async function handleTextMessage(ctx) {
     }
     
     // Проверяем, находится ли пользователь в режиме написания сообщения в поддержку
-    if (ctx.session.user && ctx.session.user.currentAction === 'writing_support_message') {
+    if (ctx.session.user.currentAction === 'writing_support_message') {
       logger.info(`User ${ctx.from.id} sent support message: ${ctx.message.text.substring(0, 100)}${ctx.message.text.length > 100 ? '...' : ''}`);
       return await handleSupportMessage(ctx);
+    }
+    
+    // Обрабатываем команды
+    if (ctx.message.text && ctx.message.text.startsWith('/')) {
+      const command = ctx.message.text.split(' ')[0].substring(1);
+      
+      switch (command) {
+        case 'start':
+          return await startCommand(ctx);
+        
+        case 'help':
+          return await helpCommand(ctx);
+        
+        case 'subscribe':
+          return await subscribeCommand(ctx);
+        
+        case 'subscription':
+          return await subscriptionCommand(ctx);
+        
+        case 'profile':
+          return await profileCommand(ctx);
+        
+        case 'support':
+          return await supportCommand(ctx);
+      }
+    }
+    
+    // Обрабатываем кнопки меню
+    switch (ctx.message.text) {
+      case '💳 Подписка':
+        return await subscriptionCommand(ctx);
+      
+      case '👤 Профиль':
+        return await profileCommand(ctx);
+      
+      case 'ℹ️ Помощь':
+      case '❓ Помощь':
+        return await helpCommand(ctx);
+      
+      case '📞 Поддержка':
+        return await supportCommand(ctx);
     }
     
     // Если сообщение не обработано, отправляем справку
@@ -52,6 +116,13 @@ async function handleTextMessage(ctx) {
  * @param {Object} bot - Экземпляр Telegraf бота
  */
 function setupTextHandlers(bot) {
+  // Обработчики для кнопок меню
+  bot.hears('💳 Подписка', subscriptionCommand);
+  bot.hears('👤 Профиль', profileCommand);
+  bot.hears('ℹ️ Помощь', helpCommand);
+  bot.hears('❓ Помощь', helpCommand);
+  bot.hears('📞 Поддержка', supportCommand);
+  
   // Обработчик всех текстовых сообщений
   bot.on('text', handleTextMessage);
   

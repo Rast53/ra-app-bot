@@ -268,10 +268,107 @@ async function getReceipt(paymentId) {
   }
 }
 
+/**
+ * Создание инвойса для оплаты через Telegram
+ * @param {number} userId - ID пользователя в базе данных
+ * @param {number} planId - ID плана подписки
+ * @returns {Promise<Object>} Информация о созданном инвойсе
+ */
+async function createTelegramInvoice(userId, planId) {
+  try {
+    logger.info(`Creating Telegram invoice for user ${userId}, plan ${planId}`);
+    
+    // Получаем данные о плане подписки
+    const plan = await getSubscriptionPlan(planId);
+    
+    if (!plan) {
+      throw new Error('План подписки не найден');
+    }
+    
+    // Получаем данные о пользователе
+    const userResult = await query(
+      'SELECT telegram_id FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    if (userResult.rows.length === 0) {
+      throw new Error(`Пользователь с ID ${userId} не найден`);
+    }
+    
+    const telegramId = userResult.rows[0].telegram_id;
+    if (!telegramId) {
+      throw new Error(`У пользователя с ID ${userId} не указан Telegram ID`);
+    }
+    
+    // Генерируем уникальный ID платежа
+    const paymentId = Date.now();
+    
+    // Создаем payload для платежа
+    const payload = JSON.stringify({
+      planId: plan.id,
+      userId: userId,
+      telegramId: telegramId,
+      paymentId
+    });
+    
+    // Проверяем, что цена плана корректно преобразуется в число
+    const planPrice = parseFloat(plan.price);
+    if (isNaN(planPrice)) {
+      throw new Error(`Некорректная цена плана: ${plan.price}`);
+    }
+    
+    // Создаем объект инвойса
+    const invoice = {
+      title: `Подписка "${plan.name}"`,
+      description: plan.description,
+      payload,
+      provider_token: process.env.TELEGRAM_PROVIDER_TOKEN,
+      currency: 'RUB',
+      prices: [
+        {
+          label: `${plan.name} (${plan.duration_days} дней)`,
+          amount: Math.round(planPrice * 100) // в копейках
+        }
+      ],
+      start_parameter: `plan_${plan.id}`
+    };
+    
+    // Сохраняем информацию о платеже в базе данных
+    const paymentResult = await query(
+      `INSERT INTO payments 
+       (user_id, payment_id, plan_id, amount, status, currency) 
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [userId, paymentId, plan.id, planPrice, 'pending', 'RUB']
+    );
+    
+    // Генерируем ссылку для оплаты
+    const botUsername = process.env.BOT_USERNAME;
+    if (!botUsername) {
+      throw new Error('BOT_USERNAME не указан в переменных окружения');
+    }
+    
+    // Создаем ссылку для оплаты
+    const invoiceLink = `https://t.me/${botUsername}?start=invoice_${paymentId}`;
+    
+    logger.info(`Created Telegram invoice with link: ${invoiceLink}`);
+    
+    return {
+      invoice_link: invoiceLink,
+      payment_id: paymentId,
+      db_payment_id: paymentResult.rows[0].id
+    };
+  } catch (error) {
+    logger.error('Error creating Telegram invoice:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   createPayment,
   processSuccessfulPayment,
   getPaymentInfo,
   getReceipt,
-  generateReceiptNumber
+  generateReceiptNumber,
+  createTelegramInvoice
 }; 

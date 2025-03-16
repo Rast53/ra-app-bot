@@ -50,4 +50,10 @@ LICENSE
 docs
 
 # Скрипты развертывания
-deploy.sh 
+deploy.sh
+
+# Исключения
+.env.*
+*.md
+.vscode/
+.idea/ 
