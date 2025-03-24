@@ -5,7 +5,7 @@ const { query } = require('../services/database');
 const logger = setupLogger();
 
 // ID группы поддержки (обновлен после миграции в супергруппу)
-const SUPPORT_CHAT_ID = -1002668096942;
+const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID;
 
 /**
  * Экранирование специальных символов Markdown
